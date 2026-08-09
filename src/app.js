@@ -132,7 +132,7 @@
   }
 
   function courseModeLabel() {
-    return isKanjiMode() ? "かんじへのみち" : "せんのコース";
+    return isKanjiMode() ? "かんじへのみち" : "せんのみち";
   }
 
   function currentDifficulty() {
@@ -255,7 +255,7 @@
         ${topBar("コースをえらぶ", "character")}
         <nav class="course-mode-switch" aria-label="コースのしゅるい">
           <button class="${state.courseMode === "line" ? "selected" : ""}" type="button" data-action="select-course-mode" data-mode="line" aria-pressed="${state.courseMode === "line"}">
-            <strong>せんのコース</strong>
+            <strong>せんのみち</strong>
             <span>ペンをはなさずに進む・全${courses.length}コース</span>
           </button>
           <button class="${state.courseMode === "kanji" ? "selected" : ""}" type="button" data-action="select-course-mode" data-mode="kanji" aria-pressed="${state.courseMode === "kanji"}">
@@ -308,13 +308,17 @@
   }
 
   function kanjiCoursePreview(theme, course, className) {
+    const edgeWidth = course.edgeWidth || 72;
+    const roadWidth = course.roadWidth || 50;
+    const markerRadius = Math.max(12, Math.round((course.markerRadius || 28) * .75));
+    const markerFontSize = course.compact ? 18 : 28;
     return `
       <svg class="${attr(className)} kanji-mini" viewBox="0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}" preserveAspectRatio="none" aria-hidden="true">
         ${course.strokes.map((stroke, index) => `
-          <path d="${attr(stroke.path)}" fill="none" stroke="${attr(theme.road.edge)}" stroke-width="72" stroke-linecap="round" stroke-linejoin="round" opacity="${index === 0 ? "1" : ".45"}"></path>
-          <path d="${attr(stroke.path)}" fill="none" stroke="${attr(theme.road.base)}" stroke-width="50" stroke-linecap="round" stroke-linejoin="round" opacity="${index === 0 ? "1" : ".6"}"></path>
-          <circle cx="${stroke.start.x}" cy="${stroke.start.y}" r="28" class="kanji-mini-number"></circle>
-          <text x="${stroke.start.x}" y="${stroke.start.y + 9}" class="kanji-mini-number-text">${index + 1}</text>
+          <path d="${attr(stroke.path)}" fill="none" stroke="${attr(theme.road.edge)}" stroke-width="${edgeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="${index === 0 ? "1" : ".45"}"></path>
+          <path d="${attr(stroke.path)}" fill="none" stroke="${attr(theme.road.base)}" stroke-width="${roadWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="${index === 0 ? "1" : ".6"}"></path>
+          <circle cx="${stroke.start.x}" cy="${stroke.start.y}" r="${markerRadius}" class="kanji-mini-number"></circle>
+          <text x="${stroke.start.x}" y="${stroke.start.y + markerFontSize * .32}" class="kanji-mini-number-text" style="font-size:${markerFontSize}px">${index + 1}</text>
         `).join("")}
       </svg>
     `;
@@ -373,6 +377,12 @@
     const strokeNumber = strokeIndex + 1;
     const strokeCount = course.strokes.length;
     const progressStart = Math.round(strokeIndex / strokeCount * 100);
+    const markerRadius = course.markerRadius || 45;
+    const markerFontSize = Math.max(18, Math.round(markerRadius * .8));
+    const routeLabels = course.compact ? "" : `
+      <text class="route-label kanji-route-label" x="${stroke.start.x}" y="${stroke.start.y - 58}">${strokeNumber}かくめ</text>
+      <text class="route-label kanji-route-label" x="${stroke.end.x}" y="${stroke.end.y - 55}">ここで はなす</text>
+    `;
 
     return `
       <main class="play-screen kanji-play-screen">
@@ -389,11 +399,10 @@
             <rect width="${VIEW_WIDTH}" height="${VIEW_HEIGHT}" fill="${attr(theme.land)}"></rect>
             ${decorations(theme.id)}
             ${kanjiRoadMarkup(theme, course, strokeIndex)}
-            <circle class="start-ring kanji-active-ring" cx="${stroke.start.x}" cy="${stroke.start.y}" r="45"></circle>
-            <circle class="goal-ring kanji-active-ring" cx="${stroke.end.x}" cy="${stroke.end.y}" r="43"></circle>
-            <text class="kanji-active-number" x="${stroke.start.x}" y="${stroke.start.y + 11}">${strokeNumber}</text>
-            <text class="route-label kanji-route-label" x="${stroke.start.x}" y="${stroke.start.y - 58}">${strokeNumber}かくめ</text>
-            <text class="route-label kanji-route-label" x="${stroke.end.x}" y="${stroke.end.y - 55}">ここで はなす</text>
+            <circle class="start-ring kanji-active-ring" cx="${stroke.start.x}" cy="${stroke.start.y}" r="${markerRadius + 4}"></circle>
+            <circle class="goal-ring kanji-active-ring" cx="${stroke.end.x}" cy="${stroke.end.y}" r="${markerRadius + 2}"></circle>
+            <text class="kanji-active-number" x="${stroke.start.x}" y="${stroke.start.y + markerFontSize * .34}" style="font-size:${markerFontSize}px">${strokeNumber}</text>
+            ${routeLabels}
             ${stroke.stops.map((stop) => `
               <g class="stop-marker">
                 <circle cx="${stop.x}" cy="${stop.y}" r="35"></circle>
@@ -419,19 +428,27 @@
   }
 
   function kanjiRoadMarkup(theme, course, activeIndex) {
+    const edgeWidth = course.edgeWidth || theme.road.edgeWidth;
+    const roadWidth = course.roadWidth || theme.road.width;
+    const centerWidth = course.centerWidth || theme.road.centerWidth;
+    const markerRadius = course.markerRadius || 25;
+    const markerFontSize = Math.max(17, Math.round(markerRadius * .86));
     return course.strokes.map((stroke, index) => {
       const status = index < activeIndex ? "completed" : index === activeIndex ? "active" : "upcoming";
       const edge = status === "completed" ? "#15803d" : status === "active" ? theme.road.edge : "#cbd5e1";
       const base = status === "completed" ? "#86efac" : status === "active" ? theme.road.base : "#f1f5f9";
       const center = status === "completed" ? "#dcfce7" : status === "active" ? theme.road.center : "#cbd5e1";
       const guideId = status === "active" ? " id=\"guidePath\"" : "";
+      const numberMarker = !course.compact || index <= activeIndex + 1 ? `
+        <circle class="kanji-stroke-number" cx="${stroke.start.x}" cy="${stroke.start.y}" r="${markerRadius}"></circle>
+        <text class="kanji-stroke-number-text" x="${stroke.start.x}" y="${stroke.start.y + markerFontSize * .34}" style="font-size:${markerFontSize}px">${index + 1}</text>
+      ` : "";
       return `
         <g class="kanji-road kanji-road-${status}">
-          <path class="road-edge" d="${attr(stroke.path)}" fill="none" stroke="${attr(edge)}" stroke-width="${theme.road.edgeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>
-          <path${guideId} class="road-base" d="${attr(stroke.path)}" fill="none" stroke="${attr(base)}" stroke-width="${theme.road.width}" stroke-linecap="round" stroke-linejoin="round"></path>
-          <path class="road-center" d="${attr(stroke.path)}" fill="none" stroke="${attr(center)}" stroke-width="${theme.road.centerWidth}" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="${attr(theme.road.dash)}"></path>
-          <circle class="kanji-stroke-number" cx="${stroke.start.x}" cy="${stroke.start.y}" r="25"></circle>
-          <text class="kanji-stroke-number-text" x="${stroke.start.x}" y="${stroke.start.y + 8}">${index + 1}</text>
+          <path class="road-edge" d="${attr(stroke.path)}" fill="none" stroke="${attr(edge)}" stroke-width="${edgeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>
+          <path${guideId} class="road-base" d="${attr(stroke.path)}" fill="none" stroke="${attr(base)}" stroke-width="${roadWidth}" stroke-linecap="round" stroke-linejoin="round"></path>
+          <path class="road-center" d="${attr(stroke.path)}" fill="none" stroke="${attr(center)}" stroke-width="${centerWidth}" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="${attr(theme.road.dash)}"></path>
+          ${numberMarker}
         </g>
       `;
     }).join("");
@@ -499,15 +516,18 @@
 
   function previewKanjiAdventure(theme, course) {
     const firstStroke = course.strokes[0];
+    const edgeWidth = course.edgeWidth || theme.road.edgeWidth;
+    const roadWidth = course.roadWidth || theme.road.width;
+    const heroScale = course.heroScale || 1;
     return `
       <svg class="preview-svg" viewBox="0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}" preserveAspectRatio="none">
         <rect width="${VIEW_WIDTH}" height="${VIEW_HEIGHT}" fill="${attr(theme.land)}"></rect>
         ${decorations(theme.id)}
         ${course.strokes.map((stroke, index) => `
-          <path d="${attr(stroke.path)}" fill="none" stroke="${attr(theme.road.edge)}" stroke-width="${theme.road.edgeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="${index === 0 ? "1" : ".45"}"></path>
-          <path d="${attr(stroke.path)}" fill="none" stroke="${attr(theme.road.base)}" stroke-width="${theme.road.width}" stroke-linecap="round" stroke-linejoin="round" opacity="${index === 0 ? "1" : ".65"}"></path>
+          <path d="${attr(stroke.path)}" fill="none" stroke="${attr(theme.road.edge)}" stroke-width="${edgeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="${index === 0 ? "1" : ".45"}"></path>
+          <path d="${attr(stroke.path)}" fill="none" stroke="${attr(theme.road.base)}" stroke-width="${roadWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="${index === 0 ? "1" : ".65"}"></path>
         `).join("")}
-        <g transform="translate(${firstStroke.start.x} ${firstStroke.start.y})">${characterGroup(theme.id)}</g>
+        <g transform="translate(${firstStroke.start.x} ${firstStroke.start.y}) scale(${heroScale})">${characterGroup(theme.id)}</g>
       </svg>
     `;
   }
@@ -637,6 +657,7 @@
       isKanji: kanji,
       strokeIndex,
       strokeCount: kanji ? displayCourse.strokes.length : 1,
+      heroScale: kanji ? (displayCourse.heroScale || 1) : 1,
       totalLength,
       samples,
       pointerId: null,
@@ -857,7 +878,7 @@
     const current = game.guide.getPointAtLength(game.totalLength * safeT);
     const next = game.guide.getPointAtLength(game.totalLength * clamp(safeT + 0.01, 0, 1));
     const angle = Math.atan2(next.y - current.y, next.x - current.x) * 180 / Math.PI;
-    game.hero.setAttribute("transform", `translate(${current.x.toFixed(2)} ${current.y.toFixed(2)}) rotate(${angle.toFixed(2)})`);
+    game.hero.setAttribute("transform", `translate(${current.x.toFixed(2)} ${current.y.toFixed(2)}) rotate(${angle.toFixed(2)}) scale(${game.heroScale || 1})`);
   }
 
   function nearestSample(point, samples) {
