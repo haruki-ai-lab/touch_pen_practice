@@ -9,6 +9,8 @@
   const courses = window.SEN_COURSES;
   const themeMap = window.SEN_THEME_MAP;
   const courseMap = window.SEN_COURSE_MAP;
+  const kanjiCourses = window.SEN_KANJI_COURSES || [];
+  const kanjiCourseMap = window.SEN_KANJI_COURSE_MAP || new Map();
   const difficulties = [
     {
       id: "easy",
@@ -35,10 +37,12 @@
     screen: "home",
     themeId: "train",
     courseId: "straight",
+    courseMode: "line",
     difficultyId: "easy",
     lastResult: null,
     bestScores: {},
-    history: []
+    history: [],
+    kanjiRun: null
   };
 
   let currentGame = null;
@@ -47,7 +51,12 @@
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
       if (themeMap.has(saved.themeId)) state.themeId = saved.themeId;
-      if (courseMap.has(saved.courseId)) state.courseId = saved.courseId;
+      if (saved.courseMode === "kanji" && kanjiCourses.length) state.courseMode = "kanji";
+      if (state.courseMode === "kanji") {
+        state.courseId = kanjiCourseMap.has(saved.courseId) ? saved.courseId : kanjiCourses[0].id;
+      } else if (courseMap.has(saved.courseId)) {
+        state.courseId = saved.courseId;
+      }
       if (difficultyMap.has(saved.difficultyId)) state.difficultyId = saved.difficultyId;
       if (Array.isArray(saved.history)) state.history = saved.history.slice(-100);
       if (saved.bestScores && typeof saved.bestScores === "object") {
@@ -69,6 +78,7 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       themeId: state.themeId,
       courseId: state.courseId,
+      courseMode: state.courseMode,
       difficultyId: state.difficultyId,
       bestScores: state.bestScores,
       history: state.history.slice(-100)
@@ -107,7 +117,22 @@
   }
 
   function currentCourse() {
+    if (state.courseMode === "kanji" && kanjiCourses.length) {
+      return kanjiCourseMap.get(state.courseId) || kanjiCourses[0];
+    }
     return courseMap.get(state.courseId) || courses[0];
+  }
+
+  function currentCourseList() {
+    return state.courseMode === "kanji" ? kanjiCourses : courses;
+  }
+
+  function isKanjiMode() {
+    return state.courseMode === "kanji";
+  }
+
+  function courseModeLabel() {
+    return isKanjiMode() ? "かんじへのみち" : "せんのコース";
   }
 
   function currentDifficulty() {
@@ -130,7 +155,7 @@
   }
 
   function bestOverall(difficultyId = state.difficultyId) {
-    const scores = courses.map((course) => bestForCourse(course.id, difficultyId)).filter((value) => value > 0);
+    const scores = currentCourseList().map((course) => bestForCourse(course.id, difficultyId)).filter((value) => value > 0);
     return scores.length ? Math.max(...scores) : 0;
   }
 
@@ -154,11 +179,14 @@
     } else if (state.screen === "course") {
       root.innerHTML = renderCourseSelect();
     } else if (state.screen === "play") {
-      root.innerHTML = renderPlay(theme, currentCourse());
+      const course = currentCourse();
+      if (isKanjiMode()) ensureKanjiRun(course);
+      root.innerHTML = renderPlay(theme, course);
       setupGame();
     } else if (state.screen === "result") {
       root.innerHTML = renderResult(theme, currentCourse(), state.lastResult);
     }
+    if (typeof window.scrollTo === "function") window.scrollTo(0, 0);
   }
 
   function renderHome(theme) {
@@ -185,6 +213,7 @@
           </fieldset>
           <div class="quick-row" aria-label="現在の選択">
             <span>${characterBadge(theme.id)} ${escapeHtml(theme.label)}</span>
+            <span>${escapeHtml(courseModeLabel())}</span>
             <span>${escapeHtml(currentCourse().label)}</span>
             <span>${escapeHtml(difficulty.label)}・最高 ${best}点</span>
           </div>
@@ -220,35 +249,79 @@
   function renderCourseSelect() {
     const theme = currentTheme();
     const difficulty = currentDifficulty();
+    const activeCourses = currentCourseList();
     return `
       <main class="screen">
         ${topBar("コースをえらぶ", "character")}
+        <nav class="course-mode-switch" aria-label="コースのしゅるい">
+          <button class="${state.courseMode === "line" ? "selected" : ""}" type="button" data-action="select-course-mode" data-mode="line" aria-pressed="${state.courseMode === "line"}">
+            <strong>せんのコース</strong>
+            <span>ペンをはなさずに進む・全${courses.length}コース</span>
+          </button>
+          <button class="${state.courseMode === "kanji" ? "selected" : ""}" type="button" data-action="select-course-mode" data-mode="kanji" aria-pressed="${state.courseMode === "kanji"}">
+            <strong>かんじへのみち</strong>
+            <span>一画ずつ書いてペンをはなす・全${kanjiCourses.length}コース</span>
+          </button>
+        </nav>
         <section class="course-summary">
-          <strong>${escapeHtml(difficulty.label)}・全${courses.length}コース</strong>
+          <strong>${escapeHtml(difficulty.label)}・全${activeCourses.length}コース</strong>
           <span>難易度ごと、コースごとに最高得点を記録します。</span>
         </section>
         <section class="choice-grid course-grid">
-          ${courses.map((course) => {
-            const best = bestForCourse(course.id);
-            return `
-            <button class="choice-card course-card ${course.id === state.courseId ? "selected" : ""}" type="button" data-action="select-course" data-course="${attr(course.id)}">
-              <svg class="course-mini" viewBox="0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}" preserveAspectRatio="none" aria-hidden="true">
-                <path d="${attr(course.path)}" fill="none" stroke="${attr(theme.road.edge)}" stroke-width="90" stroke-linecap="round" stroke-linejoin="round"></path>
-                <path d="${attr(course.path)}" fill="none" stroke="${attr(theme.road.base)}" stroke-width="66" stroke-linecap="round" stroke-linejoin="round"></path>
-              </svg>
-              <em>${escapeHtml(course.level)}</em>
-              <strong>${escapeHtml(course.label)}</strong>
-              <span>${escapeHtml(course.skill)}</span>
-              <small class="course-best">${best ? `最高 ${best}点` : "未挑戦"}</small>
-            </button>
-          `;
-          }).join("")}
+          ${isKanjiMode() ? renderKanjiCourseCards(theme) : renderLineCourseCards(theme)}
         </section>
       </main>
     `;
   }
 
+  function renderLineCourseCards(theme) {
+    return courses.map((course) => {
+      const best = bestForCourse(course.id);
+      return `
+        <button class="choice-card course-card ${course.id === state.courseId ? "selected" : ""}" type="button" data-action="select-course" data-course="${attr(course.id)}">
+          <svg class="course-mini" viewBox="0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}" preserveAspectRatio="none" aria-hidden="true">
+            <path d="${attr(course.path)}" fill="none" stroke="${attr(theme.road.edge)}" stroke-width="90" stroke-linecap="round" stroke-linejoin="round"></path>
+            <path d="${attr(course.path)}" fill="none" stroke="${attr(theme.road.base)}" stroke-width="66" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+          <em>${escapeHtml(course.level)}</em>
+          <strong>${escapeHtml(course.label)}</strong>
+          <span>${escapeHtml(course.skill)}</span>
+          <small class="course-best">${best ? `最高 ${best}点` : "未挑戦"}</small>
+        </button>
+      `;
+    }).join("");
+  }
+
+  function renderKanjiCourseCards(theme) {
+    return kanjiCourses.map((course) => {
+      const best = bestForCourse(course.id);
+      return `
+        <button class="choice-card course-card kanji-course-card ${course.id === state.courseId ? "selected" : ""}" type="button" data-action="select-course" data-course="${attr(course.id)}">
+          ${kanjiCoursePreview(theme, course, "course-mini")}
+          <em>${escapeHtml(course.level)}</em>
+          <strong class="kanji-card-title">${escapeHtml(course.label)}</strong>
+          <span>${escapeHtml(course.reading)}・${escapeHtml(course.skill)}</span>
+          <small class="course-best">${best ? `最高 ${best}点` : "未挑戦"}</small>
+        </button>
+      `;
+    }).join("");
+  }
+
+  function kanjiCoursePreview(theme, course, className) {
+    return `
+      <svg class="${attr(className)} kanji-mini" viewBox="0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}" preserveAspectRatio="none" aria-hidden="true">
+        ${course.strokes.map((stroke, index) => `
+          <path d="${attr(stroke.path)}" fill="none" stroke="${attr(theme.road.edge)}" stroke-width="72" stroke-linecap="round" stroke-linejoin="round" opacity="${index === 0 ? "1" : ".45"}"></path>
+          <path d="${attr(stroke.path)}" fill="none" stroke="${attr(theme.road.base)}" stroke-width="50" stroke-linecap="round" stroke-linejoin="round" opacity="${index === 0 ? "1" : ".6"}"></path>
+          <circle cx="${stroke.start.x}" cy="${stroke.start.y}" r="28" class="kanji-mini-number"></circle>
+          <text x="${stroke.start.x}" y="${stroke.start.y + 9}" class="kanji-mini-number-text">${index + 1}</text>
+        `).join("")}
+      </svg>
+    `;
+  }
+
   function renderPlay(theme, course) {
+    if (isKanjiMode()) return renderKanjiPlay(theme, course);
     const difficulty = currentDifficulty();
     return `
       <main class="play-screen">
@@ -290,6 +363,78 @@
         </footer>
       </main>
     `;
+  }
+
+  function renderKanjiPlay(theme, course) {
+    const difficulty = currentDifficulty();
+    const run = state.kanjiRun;
+    const strokeIndex = run.strokeIndex;
+    const stroke = course.strokes[strokeIndex];
+    const strokeNumber = strokeIndex + 1;
+    const strokeCount = course.strokes.length;
+    const progressStart = Math.round(strokeIndex / strokeCount * 100);
+
+    return `
+      <main class="play-screen kanji-play-screen">
+        <header class="play-header">
+          <button class="ghost" type="button" data-action="course">コース</button>
+          <div>
+            <p>${escapeHtml(difficulty.label)} / ${escapeHtml(theme.label)} / かんじへのみち</p>
+            <h1><span class="kanji-play-title">${escapeHtml(course.label)}</span> ${escapeHtml(course.reading)}</h1>
+          </div>
+          <button class="ghost" type="button" data-action="restart">やりなおす</button>
+        </header>
+        <section class="game-wrap">
+          <svg id="adventureSvg" class="adventure-svg" viewBox="0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}" preserveAspectRatio="none" role="img" aria-label="${attr(course.label)}の${strokeNumber}かくめをなぞる">
+            <rect width="${VIEW_WIDTH}" height="${VIEW_HEIGHT}" fill="${attr(theme.land)}"></rect>
+            ${decorations(theme.id)}
+            ${kanjiRoadMarkup(theme, course, strokeIndex)}
+            <circle class="start-ring kanji-active-ring" cx="${stroke.start.x}" cy="${stroke.start.y}" r="45"></circle>
+            <circle class="goal-ring kanji-active-ring" cx="${stroke.end.x}" cy="${stroke.end.y}" r="43"></circle>
+            <text class="kanji-active-number" x="${stroke.start.x}" y="${stroke.start.y + 11}">${strokeNumber}</text>
+            <text class="route-label kanji-route-label" x="${stroke.start.x}" y="${stroke.start.y - 58}">${strokeNumber}かくめ</text>
+            <text class="route-label kanji-route-label" x="${stroke.end.x}" y="${stroke.end.y - 55}">ここで はなす</text>
+            ${stroke.stops.map((stop) => `
+              <g class="stop-marker">
+                <circle cx="${stop.x}" cy="${stop.y}" r="35"></circle>
+                <text x="${stop.x}" y="${stop.y + 8}">${escapeHtml(stop.label)}</text>
+              </g>
+            `).join("")}
+            <polyline id="traceGlow" class="trace-glow" points=""></polyline>
+            <polyline id="traceLine" class="trace-line" points=""></polyline>
+            <g id="heroMarker" class="hero-marker">
+              ${characterGroup(theme.id)}
+            </g>
+          </svg>
+        </section>
+        <footer class="play-footer">
+          <div class="kanji-stroke-status"><strong>${strokeNumber} / ${strokeCount} かく</strong><span>${escapeHtml(course.skill)}</span></div>
+          <div class="progress-shell" aria-label="ぜんたいの すすみぐあい">
+            <div id="progressBar" class="progress-bar" style="width:${progressStart}%"></div>
+          </div>
+          <p id="playHint">${strokeNumber}の丸にペンを置いて、光っている道をなぞろう。</p>
+        </footer>
+      </main>
+    `;
+  }
+
+  function kanjiRoadMarkup(theme, course, activeIndex) {
+    return course.strokes.map((stroke, index) => {
+      const status = index < activeIndex ? "completed" : index === activeIndex ? "active" : "upcoming";
+      const edge = status === "completed" ? "#15803d" : status === "active" ? theme.road.edge : "#cbd5e1";
+      const base = status === "completed" ? "#86efac" : status === "active" ? theme.road.base : "#f1f5f9";
+      const center = status === "completed" ? "#dcfce7" : status === "active" ? theme.road.center : "#cbd5e1";
+      const guideId = status === "active" ? " id=\"guidePath\"" : "";
+      return `
+        <g class="kanji-road kanji-road-${status}">
+          <path class="road-edge" d="${attr(stroke.path)}" fill="none" stroke="${attr(edge)}" stroke-width="${theme.road.edgeWidth}" stroke-linecap="round" stroke-linejoin="round"></path>
+          <path${guideId} class="road-base" d="${attr(stroke.path)}" fill="none" stroke="${attr(base)}" stroke-width="${theme.road.width}" stroke-linecap="round" stroke-linejoin="round"></path>
+          <path class="road-center" d="${attr(stroke.path)}" fill="none" stroke="${attr(center)}" stroke-width="${theme.road.centerWidth}" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="${attr(theme.road.dash)}"></path>
+          <circle class="kanji-stroke-number" cx="${stroke.start.x}" cy="${stroke.start.y}" r="25"></circle>
+          <text class="kanji-stroke-number-text" x="${stroke.start.x}" y="${stroke.start.y + 8}">${index + 1}</text>
+        </g>
+      `;
+    }).join("");
   }
 
   function renderResult(theme, course, result) {
@@ -341,12 +486,28 @@
   }
 
   function previewAdventure(theme, course) {
+    if (isKanjiMode()) return previewKanjiAdventure(theme, course);
     return `
       <svg class="preview-svg" viewBox="0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}" preserveAspectRatio="none">
         <rect width="${VIEW_WIDTH}" height="${VIEW_HEIGHT}" fill="${attr(theme.land)}"></rect>
         ${decorations(theme.id)}
         ${roadMarkup(theme, course)}
         <g transform="translate(${course.start.x} ${course.start.y})">${characterGroup(theme.id)}</g>
+      </svg>
+    `;
+  }
+
+  function previewKanjiAdventure(theme, course) {
+    const firstStroke = course.strokes[0];
+    return `
+      <svg class="preview-svg" viewBox="0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}" preserveAspectRatio="none">
+        <rect width="${VIEW_WIDTH}" height="${VIEW_HEIGHT}" fill="${attr(theme.land)}"></rect>
+        ${decorations(theme.id)}
+        ${course.strokes.map((stroke, index) => `
+          <path d="${attr(stroke.path)}" fill="none" stroke="${attr(theme.road.edge)}" stroke-width="${theme.road.edgeWidth}" stroke-linecap="round" stroke-linejoin="round" opacity="${index === 0 ? "1" : ".45"}"></path>
+          <path d="${attr(stroke.path)}" fill="none" stroke="${attr(theme.road.base)}" stroke-width="${theme.road.width}" stroke-linecap="round" stroke-linejoin="round" opacity="${index === 0 ? "1" : ".65"}"></path>
+        `).join("")}
+        <g transform="translate(${firstStroke.start.x} ${firstStroke.start.y})">${characterGroup(theme.id)}</g>
       </svg>
     `;
   }
@@ -456,7 +617,10 @@
     const hero = root.querySelector("#heroMarker");
     const progressBar = root.querySelector("#progressBar");
     const hint = root.querySelector("#playHint");
-    const course = currentCourse();
+    const displayCourse = currentCourse();
+    const kanji = isKanjiMode();
+    const strokeIndex = kanji ? state.kanjiRun.strokeIndex : 0;
+    const course = kanji ? displayCourse.strokes[strokeIndex] : displayCourse;
     const totalLength = guide.getTotalLength();
     const samples = samplePath(guide, totalLength, 360);
 
@@ -469,6 +633,10 @@
       progressBar,
       hint,
       course,
+      displayCourse,
+      isKanji: kanji,
+      strokeIndex,
+      strokeCount: kanji ? displayCourse.strokes.length : 1,
       totalLength,
       samples,
       pointerId: null,
@@ -506,7 +674,9 @@
     addTracePoint(game, point);
     setHint(game, distance(point, game.samples[0]) > 120
       ? "スタートの近くからはじめると、もっと進みやすいよ。"
-      : "そのまま、ゆっくりなぞろう。"
+      : game.isKanji
+        ? "そのまま、線の終わりまでなぞってペンをはなそう。"
+        : "そのまま、ゆっくりなぞろう。"
     );
   }
 
@@ -529,17 +699,27 @@
     game.pointerId = null;
 
     const result = evaluateTrace(game);
-    const previousBest = bestForCourse(state.courseId);
+    if (game.isKanji) {
+      handleKanjiStrokeEnd(game, result);
+      return;
+    }
+    finishCourse(result);
+  }
+
+  function finishCourse(result) {
+    const courseId = currentCourse().id;
+    const previousBest = bestForCourse(courseId);
     const bestScore = Math.max(previousBest, result.score);
     result.previousBest = previousBest;
     result.bestScore = bestScore;
     result.isNewBest = result.score > previousBest;
-    state.bestScores[bestScoreKey(state.courseId)] = bestScore;
+    state.bestScores[bestScoreKey(courseId)] = bestScore;
     state.lastResult = result;
     state.history.push({
       at: new Date().toISOString(),
       themeId: state.themeId,
-      courseId: state.courseId,
+      courseId,
+      courseMode: state.courseMode,
       difficultyId: state.difficultyId,
       score: result.score,
       progress: result.progress,
@@ -551,6 +731,86 @@
     saveState();
     state.screen = "result";
     render();
+  }
+
+  function ensureKanjiRun(course) {
+    const run = state.kanjiRun;
+    if (run && run.courseId === course.id && run.difficultyId === state.difficultyId
+      && run.strokeIndex < course.strokes.length) return;
+    state.kanjiRun = {
+      courseId: course.id,
+      difficultyId: state.difficultyId,
+      strokeIndex: 0,
+      strokeResults: []
+    };
+  }
+
+  function resetKanjiRun() {
+    state.kanjiRun = null;
+  }
+
+  function handleKanjiStrokeEnd(game, result) {
+    if (!kanjiStrokeCompleted(game)) {
+      game.points = [];
+      game.maxProgress = 0;
+      game.traceLine.setAttribute("points", "");
+      game.traceGlow.setAttribute("points", "");
+      game.progressBar.style.width = `${Math.round(game.strokeIndex / game.strokeCount * 100)}%`;
+      setHeroAt(game, 0);
+      setHint(game, `${game.strokeIndex + 1}かくめを、丸から丸までつなげてみよう。`);
+      return;
+    }
+
+    const run = state.kanjiRun;
+    run.strokeResults.push(result);
+    run.strokeIndex += 1;
+    if (run.strokeIndex < game.strokeCount) {
+      render();
+      return;
+    }
+
+    finishCourse(combineKanjiResults(run.strokeResults));
+  }
+
+  function kanjiStrokeCompleted(game) {
+    if (game.points.length < 2) return false;
+    const first = game.points[0];
+    const last = game.points[game.points.length - 1];
+    const tolerance = (game.course.tolerance || 88) * 1.25;
+    return distance(first, game.samples[0]) <= tolerance
+      && first.nearest.t <= 0.12
+      && game.maxProgress >= 0.92
+      && last.nearest.t >= 0.86
+      && distance(last, game.samples[game.samples.length - 1]) <= tolerance;
+  }
+
+  function combineKanjiResults(strokeResults) {
+    const score = Math.round(average(strokeResults.map((result) => result.score)));
+    const accuracy = average(strokeResults.map((result) => result.accuracy || 0));
+    const nearRatio = average(strokeResults.map((result) => result.nearRatio || 0));
+    const backtrack = strokeResults.reduce((sum, result) => sum + (result.backtrack || 0), 0);
+    const efficiency = average(strokeResults.map((result) => (
+      typeof result.efficiency === "number" ? result.efficiency : 1
+    )));
+    const details = [`${strokeResults.length}かくを じゅんばんに かけた`];
+    strokeResults.forEach((result, index) => {
+      details.push(`${index + 1}かくめ ${result.score}点`);
+    });
+
+    return {
+      score,
+      title: scoreTitle(score),
+      details,
+      tip: score >= 85
+        ? "ペンを置く、書く、はなすができました。次の文字にも進めます。"
+        : "光っている一画を、始めから終わりまでゆっくり進みましょう。",
+      progress: 1,
+      accuracy,
+      nearRatio,
+      backtrack,
+      efficiency,
+      strokeScores: strokeResults.map((result) => result.score)
+    };
   }
 
   function eventPoint(event, svg) {
@@ -575,12 +835,18 @@
     const pointsText = game.points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
     game.traceLine.setAttribute("points", pointsText);
     game.traceGlow.setAttribute("points", pointsText);
-    game.progressBar.style.width = `${Math.round(game.maxProgress * 100)}%`;
+    const overallProgress = game.isKanji
+      ? (game.strokeIndex + game.maxProgress) / game.strokeCount
+      : game.maxProgress;
+    game.progressBar.style.width = `${Math.round(overallProgress * 100)}%`;
 
     if (nearest.distance > 150) {
       setHint(game, "みちの近くにもどってみよう。");
     } else if (game.maxProgress > 0.9) {
-      setHint(game, "もうすぐゴール。さいごまでなぞろう。");
+      setHint(game, game.isKanji
+        ? "線の終わりで止めて、ペンをはなそう。"
+        : "もうすぐゴール。さいごまでなぞろう。"
+      );
     } else if (nearest.distance < 45) {
       setHint(game, "いいね。そのまま進もう。");
     }
@@ -621,7 +887,8 @@
         details: ["まずはペンを置いて、少しだけ動かそう。"],
         tip: "点を押すだけでも大丈夫です。次はそのまま動かしてみましょう。",
         progress: 0,
-        accuracy: 0
+        accuracy: 0,
+        nearRatio: 0
       };
     }
 
@@ -664,7 +931,8 @@
       details,
       tip: resultTip({ finished, accuracy, speedOk, progress }),
       progress,
-      accuracy
+      accuracy,
+      nearRatio
     };
   }
 
@@ -678,6 +946,7 @@
         tip: "スタートからゴールのほうへ、ペンをつけたまま進みましょう。",
         progress: 0,
         accuracy: 0,
+        nearRatio: 0,
         backtrack: 0,
         efficiency: 0
       };
@@ -783,6 +1052,7 @@
       }),
       progress,
       accuracy,
+      nearRatio,
       backtrack,
       efficiency
     };
@@ -868,29 +1138,46 @@
     } else if (action === "select-difficulty") {
       if (difficultyMap.has(button.dataset.difficulty)) {
         state.difficultyId = button.dataset.difficulty;
+        resetKanjiRun();
         saveState();
       }
     } else if (action === "quick-play") {
+      resetKanjiRun();
       state.screen = "play";
     } else if (action === "home") {
       state.screen = "home";
     } else if (action === "character") {
       state.screen = "character";
     } else if (action === "course") {
+      resetKanjiRun();
       state.screen = "course";
     } else if (action === "select-theme") {
       state.themeId = button.dataset.theme;
+      resetKanjiRun();
       saveState();
       state.screen = "course";
+    } else if (action === "select-course-mode") {
+      const mode = button.dataset.mode;
+      if (mode === "line" || (mode === "kanji" && kanjiCourses.length)) {
+        state.courseMode = mode;
+        if (mode === "line" && !courseMap.has(state.courseId)) state.courseId = courses[0].id;
+        if (mode === "kanji" && !kanjiCourseMap.has(state.courseId)) state.courseId = kanjiCourses[0].id;
+        resetKanjiRun();
+        saveState();
+      }
     } else if (action === "select-course") {
       state.courseId = button.dataset.course;
+      resetKanjiRun();
       saveState();
       state.screen = "play";
     } else if (action === "restart") {
+      resetKanjiRun();
       state.screen = "play";
     } else if (action === "next-course") {
-      const index = courses.findIndex((course) => course.id === state.courseId);
-      state.courseId = courses[(index + 1) % courses.length].id;
+      const activeCourses = currentCourseList();
+      const index = activeCourses.findIndex((course) => course.id === state.courseId);
+      state.courseId = activeCourses[(index + 1) % activeCourses.length].id;
+      resetKanjiRun();
       saveState();
       state.screen = "play";
     }
