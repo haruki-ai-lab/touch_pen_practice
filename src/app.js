@@ -9,11 +9,33 @@
   const courses = window.SEN_COURSES;
   const themeMap = window.SEN_THEME_MAP;
   const courseMap = window.SEN_COURSE_MAP;
+  const difficulties = [
+    {
+      id: "easy",
+      label: "かんたん",
+      shortLabel: "はじめて",
+      description: "みちの近くを通って、ゴールをめざそう。"
+    },
+    {
+      id: "normal",
+      label: "ふつう",
+      shortLabel: "ていねいに",
+      description: "まんなかを、もどらずに進もう。"
+    },
+    {
+      id: "hard",
+      label: "むずかしい",
+      shortLabel: "ちょうせん",
+      description: "まんなかを、ゆっくり正確に進もう。"
+    }
+  ];
+  const difficultyMap = new Map(difficulties.map((difficulty) => [difficulty.id, difficulty]));
 
   const state = {
     screen: "home",
     themeId: "train",
     courseId: "straight",
+    difficultyId: "easy",
     lastResult: null,
     bestScores: {},
     history: []
@@ -26,13 +48,16 @@
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
       if (themeMap.has(saved.themeId)) state.themeId = saved.themeId;
       if (courseMap.has(saved.courseId)) state.courseId = saved.courseId;
+      if (difficultyMap.has(saved.difficultyId)) state.difficultyId = saved.difficultyId;
       if (Array.isArray(saved.history)) state.history = saved.history.slice(-100);
       if (saved.bestScores && typeof saved.bestScores === "object") {
         state.bestScores = { ...saved.bestScores };
       }
       state.history.forEach((entry) => {
         if (!entry || !entry.courseId || typeof entry.score !== "number") return;
-        state.bestScores[entry.courseId] = Math.max(bestForCourse(entry.courseId), entry.score);
+        const difficultyId = difficultyMap.has(entry.difficultyId) ? entry.difficultyId : "easy";
+        const key = bestScoreKey(entry.courseId, difficultyId);
+        state.bestScores[key] = Math.max(bestForCourse(entry.courseId, difficultyId), entry.score);
       });
     } catch {
       state.history = [];
@@ -44,6 +69,7 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify({
       themeId: state.themeId,
       courseId: state.courseId,
+      difficultyId: state.difficultyId,
       bestScores: state.bestScores,
       history: state.history.slice(-100)
     }));
@@ -84,13 +110,27 @@
     return courseMap.get(state.courseId) || courses[0];
   }
 
-  function bestForCourse(courseId) {
-    const value = state.bestScores[courseId];
-    return typeof value === "number" ? value : 0;
+  function currentDifficulty() {
+    return difficultyMap.get(state.difficultyId) || difficulties[0];
   }
 
-  function bestOverall() {
-    const scores = Object.values(state.bestScores).filter((value) => typeof value === "number");
+  function bestScoreKey(courseId, difficultyId = state.difficultyId) {
+    return `${difficultyId}:${courseId}`;
+  }
+
+  function bestForCourse(courseId, difficultyId = state.difficultyId) {
+    const value = state.bestScores[bestScoreKey(courseId, difficultyId)];
+    if (typeof value === "number") return value;
+
+    // v1の記録はコースIDだけで保存していたため、「かんたん」の記録として引き継ぐ。
+    if (difficultyId === "easy" && typeof state.bestScores[courseId] === "number") {
+      return state.bestScores[courseId];
+    }
+    return 0;
+  }
+
+  function bestOverall(difficultyId = state.difficultyId) {
+    const scores = courses.map((course) => bestForCourse(course.id, difficultyId)).filter((value) => value > 0);
     return scores.length ? Math.max(...scores) : 0;
   }
 
@@ -122,6 +162,7 @@
   }
 
   function renderHome(theme) {
+    const difficulty = currentDifficulty();
     const best = bestOverall();
 
     return `
@@ -130,10 +171,22 @@
           <p class="eyebrow">タッチペンれんしゅう</p>
           <h1>せんのぼうけん</h1>
           <p class="lead">みちをなぞって、${escapeHtml(theme.title)}をゴールまでつれていこう。</p>
-          <div class="quick-row" aria-label="現在のえら択">
+          <fieldset class="difficulty-picker">
+            <legend>むずかしさを えらぼう</legend>
+            <div class="difficulty-options">
+              ${difficulties.map((item) => `
+                <button class="difficulty-button ${item.id === state.difficultyId ? "selected" : ""}" type="button" data-action="select-difficulty" data-difficulty="${attr(item.id)}" aria-pressed="${item.id === state.difficultyId}">
+                  <span>${escapeHtml(item.shortLabel)}</span>
+                  <strong>${escapeHtml(item.label)}</strong>
+                  <small>${escapeHtml(item.description)}</small>
+                </button>
+              `).join("")}
+            </div>
+          </fieldset>
+          <div class="quick-row" aria-label="現在の選択">
             <span>${characterBadge(theme.id)} ${escapeHtml(theme.label)}</span>
             <span>${escapeHtml(currentCourse().label)}</span>
-            <span>最高 ${best}点</span>
+            <span>${escapeHtml(difficulty.label)}・最高 ${best}点</span>
           </div>
           <div class="actions">
             <button class="primary" type="button" data-action="start">はじめる</button>
@@ -166,12 +219,13 @@
 
   function renderCourseSelect() {
     const theme = currentTheme();
+    const difficulty = currentDifficulty();
     return `
       <main class="screen">
         ${topBar("コースをえらぶ", "character")}
         <section class="course-summary">
-          <strong>全${courses.length}コース</strong>
-          <span>100点満点で、コースごとに最高得点を記録します。</span>
+          <strong>${escapeHtml(difficulty.label)}・全${courses.length}コース</strong>
+          <span>難易度ごと、コースごとに最高得点を記録します。</span>
         </section>
         <section class="choice-grid course-grid">
           ${courses.map((course) => {
@@ -195,12 +249,13 @@
   }
 
   function renderPlay(theme, course) {
+    const difficulty = currentDifficulty();
     return `
       <main class="play-screen">
         <header class="play-header">
           <button class="ghost" type="button" data-action="course">コース</button>
           <div>
-            <p>${escapeHtml(theme.label)} / ${escapeHtml(theme.place)}</p>
+            <p>${escapeHtml(difficulty.label)} / ${escapeHtml(theme.label)} / ${escapeHtml(theme.place)}</p>
             <h1>${escapeHtml(course.label)}</h1>
           </div>
           <button class="ghost" type="button" data-action="restart">やりなおす</button>
@@ -238,6 +293,7 @@
   }
 
   function renderResult(theme, course, result) {
+    const difficulty = currentDifficulty();
     const safeResult = result || {
       score: 0,
       bestScore: bestForCourse(course.id),
@@ -252,7 +308,7 @@
     return `
       <main class="screen result-screen">
         <section class="result-panel">
-          <p class="eyebrow">${escapeHtml(course.label)} / ${escapeHtml(theme.label)}</p>
+          <p class="eyebrow">${escapeHtml(difficulty.label)} / ${escapeHtml(course.label)} / ${escapeHtml(theme.label)}</p>
           <h1>${escapeHtml(safeResult.title)}</h1>
           <div class="score-board" aria-label="今回 ${safeResult.score}点">
             <div class="score-main"><strong>${safeResult.score}</strong><span>点</span></div>
@@ -478,15 +534,18 @@
     result.previousBest = previousBest;
     result.bestScore = bestScore;
     result.isNewBest = result.score > previousBest;
-    state.bestScores[state.courseId] = bestScore;
+    state.bestScores[bestScoreKey(state.courseId)] = bestScore;
     state.lastResult = result;
     state.history.push({
       at: new Date().toISOString(),
       themeId: state.themeId,
       courseId: state.courseId,
+      difficultyId: state.difficultyId,
       score: result.score,
       progress: result.progress,
-      accuracy: result.accuracy
+      accuracy: result.accuracy,
+      backtrack: result.backtrack || 0,
+      efficiency: typeof result.efficiency === "number" ? result.efficiency : 1
     });
     state.history = state.history.slice(-100);
     saveState();
@@ -549,6 +608,11 @@
   }
 
   function evaluateTrace(game) {
+    if (state.difficultyId === "easy") return evaluateEasyTrace(game);
+    return evaluateCarefulTrace(game, state.difficultyId);
+  }
+
+  function evaluateEasyTrace(game) {
     const points = game.points;
     if (points.length < 2) {
       return {
@@ -604,7 +668,148 @@
     };
   }
 
-  function speedScore(points) {
+  function evaluateCarefulTrace(game, difficultyId) {
+    const points = game.points;
+    if (points.length < 2) {
+      return {
+        score: 0,
+        title: "ペンをおいてみよう",
+        details: ["スタートにペンを置いて、少しだけ動かそう。"],
+        tip: "スタートからゴールのほうへ、ペンをつけたまま進みましょう。",
+        progress: 0,
+        accuracy: 0,
+        backtrack: 0,
+        efficiency: 0
+      };
+    }
+
+    const settings = difficultyId === "hard" ? {
+      toleranceScale: 0.52,
+      startDistance: 70,
+      startProgress: 0.055,
+      endDistance: 65,
+      endProgress: 0.94,
+      fastSpeed: 600,
+      backtrackRange: 0.25,
+      excessRange: 0.55,
+      backtrackWarning: 0.1,
+      nearWarning: 0.66,
+      efficiencyWarning: 0.65,
+      weights: { path: 0.46, progress: 0.14, direction: 0.17, efficiency: 0.13, speed: 0.07, stop: 0.03 },
+      caps: { unfinished: 60, start: 55, rough: 50, backtrack: 50, detour: 55 }
+    } : {
+      toleranceScale: 0.72,
+      startDistance: 95,
+      startProgress: 0.08,
+      endDistance: 90,
+      endProgress: 0.9,
+      fastSpeed: 760,
+      backtrackRange: 0.5,
+      excessRange: 0.85,
+      backtrackWarning: 0.18,
+      nearWarning: 0.56,
+      efficiencyWarning: 0.55,
+      weights: { path: 0.45, progress: 0.18, direction: 0.15, efficiency: 0.12, speed: 0.06, stop: 0.04 },
+      caps: { unfinished: 72, start: 74, rough: 64, backtrack: 65, detour: 68 }
+    };
+
+    const tolerance = (game.course.tolerance || 88) * settings.toleranceScale;
+    const close = tolerance * 0.45;
+    const loose = tolerance * 1.35;
+    const distanceScores = points.map((point) => {
+      const value = point.nearest.distance;
+      if (value <= close) return 1;
+      if (value <= tolerance) return 0.72;
+      if (value <= loose) return 0.3;
+      return 0.02;
+    });
+    const accuracy = average(distanceScores);
+    const nearRatio = points.filter((point) => point.nearest.distance <= tolerance).length / points.length;
+    const pathScore = accuracy * 0.65 + nearRatio * 0.35;
+    const progress = game.maxProgress;
+    const first = points[0];
+    const last = points[points.length - 1];
+    const startOk = distance(first, game.samples[0]) <= settings.startDistance
+      && first.nearest.t <= settings.startProgress;
+    const endOk = distance(last, game.samples[game.samples.length - 1]) <= settings.endDistance
+      && last.nearest.t >= settings.endProgress;
+    const finished = startOk && endOk && progress >= 0.94;
+    const backtrack = backtrackAmount(points, loose);
+    const directionOk = clamp(1 - backtrack / settings.backtrackRange, 0, 1);
+    const efficiency = efficiencyScore(points, game.totalLength, progress, settings.excessRange);
+    const speedOk = speedScore(points, settings.fastSpeed);
+    const stopOk = stopScore(points, game.course.stops, loose);
+    const weights = settings.weights;
+    const rawScore = pathScore * weights.path
+      + progress * weights.progress
+      + directionOk * weights.direction
+      + efficiency * weights.efficiency
+      + speedOk * weights.speed
+      + stopOk * weights.stop;
+    let score = Math.round(clamp(rawScore, 0, 1) * 100);
+
+    if (!finished) score = Math.min(score, settings.caps.unfinished);
+    if (!startOk) score = Math.min(score, settings.caps.start);
+    if (nearRatio < settings.nearWarning) score = Math.min(score, settings.caps.rough);
+    if (backtrack > settings.backtrackWarning) score = Math.min(score, settings.caps.backtrack);
+    if (efficiency < settings.efficiencyWarning) score = Math.min(score, settings.caps.detour);
+    if (progress < 0.35) score = Math.min(score, difficultyId === "hard" ? 35 : 45);
+
+    const details = [];
+    if (finished) details.push("スタートからゴールまでいけた");
+    else if (!startOk) details.push("スタートの近くからはじめよう");
+    else details.push(`ゴールまで ${Math.round(progress * 100)}% すすんだ`);
+    details.push(`みちの まんなか ${Math.round(nearRatio * 100)}%`);
+    if (backtrack <= settings.backtrackWarning * 0.35) details.push("もどらずに すすめた");
+    else details.push("もどった うごきが あった");
+    if (efficiency >= 0.75) details.push("おなじところを通りすぎなかった");
+    else details.push("おなじところを何度も通った");
+    if (speedOk < 0.72) details.push("少し速いところがあった");
+
+    return {
+      score,
+      title: scoreTitle(score),
+      details,
+      tip: carefulResultTip({
+        finished,
+        startOk,
+        accuracy,
+        nearRatio,
+        speedOk,
+        progress,
+        backtrack,
+        efficiency,
+        settings
+      }),
+      progress,
+      accuracy,
+      backtrack,
+      efficiency
+    };
+  }
+
+  function backtrackAmount(points, maxDistance) {
+    let amount = 0;
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = points[index - 1];
+      const current = points[index];
+      if (previous.nearest.distance > maxDistance || current.nearest.distance > maxDistance) continue;
+      amount += Math.max(0, previous.nearest.t - current.nearest.t - 0.005);
+    }
+    return amount;
+  }
+
+  function efficiencyScore(points, totalLength, progress, excessRange) {
+    let travelled = 0;
+    for (let index = 1; index < points.length; index += 1) {
+      travelled += distance(points[index - 1], points[index]);
+    }
+    const expected = Math.max(totalLength * Math.max(progress, 0.05), 1);
+    const excess = Math.max(0, travelled / expected - 1);
+    return clamp(1 - excess / excessRange, 0, 1);
+  }
+
+  function speedScore(points, fastLimit = 920) {
     const speeds = [];
     for (let index = 1; index < points.length; index += 1) {
       const previous = points[index - 1];
@@ -613,17 +818,17 @@
       speeds.push(distance(previous, current) / elapsed * 1000);
     }
     if (!speeds.length) return 0.5;
-    const fastRatio = speeds.filter((speed) => speed > 920).length / speeds.length;
+    const fastRatio = speeds.filter((speed) => speed > fastLimit).length / speeds.length;
     return clamp(1 - fastRatio, 0, 1);
   }
 
-  function stopScore(points, stops) {
+  function stopScore(points, stops, maxDistance = 120) {
     if (!stops.length) return 1;
     let found = 0;
     for (const stop of stops) {
       const touched = points.some((point) => {
         const closeToStop = Math.abs(point.nearest.t - stop.t) < 0.06;
-        return closeToStop && point.nearest.distance < 120;
+        return closeToStop && point.nearest.distance < maxDistance;
       });
       if (touched) found += 1;
     }
@@ -638,6 +843,17 @@
     return "次はちがうコースにも進めます。";
   }
 
+  function carefulResultTip({ finished, startOk, accuracy, nearRatio, speedOk, progress, backtrack, efficiency, settings }) {
+    if (!startOk) return "スタートの丸にペンを置いてから、ゴールのほうへ進みましょう。";
+    if (progress < 0.55) return "ペンを画面につけたまま、ゴールのほうへ進んでみましょう。";
+    if (!finished) return "ゴールの丸まで線をつなげて、そこでペンを止めましょう。";
+    if (backtrack > settings.backtrackWarning) return "来た道はもどらず、ゴールのほうへ一回で進みましょう。";
+    if (efficiency < settings.efficiencyWarning) return "同じところを往復せず、一本の線で進みましょう。";
+    if (nearRatio < settings.nearWarning || accuracy < 0.62) return "道のまんなかを見ながら、少し小さく動かしましょう。";
+    if (speedOk < 0.72) return "少しゆっくり進むと、線が安定します。";
+    return "ていねいに進めました。次のコースにも挑戦できます。";
+  }
+
   function setHint(game, text) {
     game.hint.textContent = text;
   }
@@ -649,6 +865,11 @@
     const action = button.dataset.action;
     if (action === "start") {
       state.screen = "character";
+    } else if (action === "select-difficulty") {
+      if (difficultyMap.has(button.dataset.difficulty)) {
+        state.difficultyId = button.dataset.difficulty;
+        saveState();
+      }
     } else if (action === "quick-play") {
       state.screen = "play";
     } else if (action === "home") {
