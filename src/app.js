@@ -1044,6 +1044,7 @@
     if (backtrack > settings.backtrackWarning) score = Math.min(score, settings.caps.backtrack);
     if (efficiency < settings.efficiencyWarning) score = Math.min(score, settings.caps.detour);
     if (progress < 0.35) score = Math.min(score, difficultyId === "hard" ? 35 : 45);
+    score = applyHighScoreLeniency(score, difficultyId);
 
     const details = [];
     if (finished) details.push("スタートからゴールまでいけた");
@@ -1077,6 +1078,13 @@
       backtrack,
       efficiency
     };
+  }
+
+  function applyHighScoreLeniency(score, difficultyId) {
+    if (difficultyId !== "normal") return score;
+    if (score >= 98) return 100;
+    if (score >= 95) return score + 1;
+    return score;
   }
 
   function backtrackAmount(points, maxDistance) {
