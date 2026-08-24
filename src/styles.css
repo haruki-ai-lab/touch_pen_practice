@@ -267,6 +267,41 @@ button:focus-visible {
   line-height: 1.45;
 }
 
+.kanji-grade-switch {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: -4px 0 16px;
+}
+
+.kanji-grade-switch button {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: center;
+  min-width: 0;
+  padding: 11px 10px;
+  color: #374151;
+  border: 2px solid rgba(31, 41, 55, .14);
+  background: rgba(255, 255, 255, .78);
+}
+
+.kanji-grade-switch button.selected {
+  color: #134e4a;
+  border-color: #0f766e;
+  background: #ecfdf5;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, .1);
+}
+
+.kanji-grade-switch strong {
+  font-size: 20px;
+}
+
+.kanji-grade-switch span {
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .course-summary {
   display: flex;
   flex-wrap: wrap;
@@ -780,6 +815,15 @@ button:focus-visible {
   .course-mode-switch {
     grid-template-columns: 1fr;
     gap: 8px;
+  }
+
+  .kanji-grade-switch button {
+    gap: 4px;
+    padding: 10px 4px;
+  }
+
+  .kanji-grade-switch strong {
+    font-size: 17px;
   }
 
   .difficulty-options {
