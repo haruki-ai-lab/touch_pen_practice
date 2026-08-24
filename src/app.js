@@ -9,6 +9,8 @@
   const courses = window.SEN_COURSES;
   const themeMap = window.SEN_THEME_MAP;
   const courseMap = window.SEN_COURSE_MAP;
+  const kanaCourses = window.SEN_KANA_COURSES || [];
+  const kanaCourseMap = window.SEN_KANA_COURSE_MAP || new Map();
   const kanjiCourses = window.SEN_KANJI_COURSES || [];
   const kanjiCourseMap = window.SEN_KANJI_COURSE_MAP || new Map();
   const kanjiGrades = [
@@ -20,6 +22,10 @@
   const kanjiCoursesByGrade = new Map(kanjiGrades.map((grade) => [
     grade.id,
     kanjiCourses.filter((course) => (course.gradeId || "grade_1") === grade.id)
+  ]));
+  const kanaCoursesByType = new Map(["hiragana", "katakana"].map((typeId) => [
+    typeId,
+    kanaCourses.filter((course) => course.typeId === typeId)
   ]));
   const difficulties = [
     {
@@ -63,6 +69,10 @@
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
       if (themeMap.has(saved.themeId)) state.themeId = saved.themeId;
       if (saved.courseMode === "kanji" && kanjiCourses.length) state.courseMode = "kanji";
+      if ((saved.courseMode === "hiragana" || saved.courseMode === "katakana")
+        && (kanaCoursesByType.get(saved.courseMode) || []).length) {
+        state.courseMode = saved.courseMode;
+      }
       if (kanjiGradeMap.has(saved.kanjiGradeId)) state.kanjiGradeId = saved.kanjiGradeId;
       if (state.courseMode === "kanji") {
         const savedCourse = kanjiCourseMap.get(saved.courseId);
@@ -73,6 +83,12 @@
           const gradeCourses = kanjiCoursesByGrade.get(state.kanjiGradeId) || [];
           state.courseId = (gradeCourses[0] || kanjiCourses[0]).id;
         }
+      } else if (state.courseMode === "hiragana" || state.courseMode === "katakana") {
+        const typeCourses = kanaCoursesByType.get(state.courseMode) || [];
+        const savedCourse = kanaCourseMap.get(saved.courseId);
+        state.courseId = savedCourse && savedCourse.typeId === state.courseMode
+          ? savedCourse.id
+          : typeCourses[0].id;
       } else if (courseMap.has(saved.courseId)) {
         state.courseId = saved.courseId;
       }
@@ -143,23 +159,43 @@
       if (selected && (selected.gradeId || "grade_1") === state.kanjiGradeId) return selected;
       return gradeCourses[0] || kanjiCourses[0];
     }
+    if ((state.courseMode === "hiragana" || state.courseMode === "katakana") && kanaCourses.length) {
+      const typeCourses = kanaCoursesByType.get(state.courseMode) || [];
+      const selected = kanaCourseMap.get(state.courseId);
+      if (selected && selected.typeId === state.courseMode) return selected;
+      return typeCourses[0] || kanaCourses[0];
+    }
     return courseMap.get(state.courseId) || courses[0];
   }
 
   function currentCourseList() {
-    if (state.courseMode !== "kanji") return courses;
-    const gradeCourses = kanjiCoursesByGrade.get(state.kanjiGradeId) || [];
-    return gradeCourses.length ? gradeCourses : kanjiCourses;
+    if (state.courseMode === "kanji") {
+      const gradeCourses = kanjiCoursesByGrade.get(state.kanjiGradeId) || [];
+      return gradeCourses.length ? gradeCourses : kanjiCourses;
+    }
+    if (state.courseMode === "hiragana" || state.courseMode === "katakana") {
+      const typeCourses = kanaCoursesByType.get(state.courseMode) || [];
+      return typeCourses.length ? typeCourses : kanaCourses;
+    }
+    return courses;
   }
 
   function isKanjiMode() {
     return state.courseMode === "kanji";
   }
 
+  function isCharacterMode() {
+    return state.courseMode !== "line";
+  }
+
   function courseModeLabel() {
-    if (!isKanjiMode()) return "せんのみち";
-    const grade = kanjiGradeMap.get(state.kanjiGradeId);
-    return `かんじへのみち・${grade ? grade.label : "1年生"}`;
+    if (state.courseMode === "hiragana") return "ひらがなへのみち";
+    if (state.courseMode === "katakana") return "カタカナへのみち";
+    if (isKanjiMode()) {
+      const grade = kanjiGradeMap.get(state.kanjiGradeId);
+      return `かんじへのみち・${grade ? grade.label : "1年生"}`;
+    }
+    return "せんのみち";
   }
 
   function currentDifficulty() {
@@ -207,7 +243,7 @@
       root.innerHTML = renderCourseSelect();
     } else if (state.screen === "play") {
       const course = currentCourse();
-      if (isKanjiMode()) ensureKanjiRun(course);
+      if (isCharacterMode()) ensureKanjiRun(course);
       root.innerHTML = renderPlay(theme, course);
       setupGame();
     } else if (state.screen === "result") {
@@ -285,6 +321,14 @@
             <strong>せんのみち</strong>
             <span>ペンをはなさずに進む・全${courses.length}コース</span>
           </button>
+          <button class="${state.courseMode === "hiragana" ? "selected" : ""}" type="button" data-action="select-course-mode" data-mode="hiragana" aria-pressed="${state.courseMode === "hiragana"}">
+            <strong>ひらがなへのみち</strong>
+            <span>一画ずつ書いてペンをはなす・全${(kanaCoursesByType.get("hiragana") || []).length}もじ</span>
+          </button>
+          <button class="${state.courseMode === "katakana" ? "selected" : ""}" type="button" data-action="select-course-mode" data-mode="katakana" aria-pressed="${state.courseMode === "katakana"}">
+            <strong>カタカナへのみち</strong>
+            <span>一画ずつ書いてペンをはなす・全${(kanaCoursesByType.get("katakana") || []).length}もじ</span>
+          </button>
           <button class="${state.courseMode === "kanji" ? "selected" : ""}" type="button" data-action="select-course-mode" data-mode="kanji" aria-pressed="${state.courseMode === "kanji"}">
             <strong>かんじへのみち</strong>
             <span>一画ずつ書いてペンをはなす・全${kanjiCourses.length}コース</span>
@@ -296,7 +340,7 @@
           <span>難易度ごと、コースごとに最高得点を記録します。</span>
         </section>
         <section class="choice-grid course-grid">
-          ${isKanjiMode() ? renderKanjiCourseCards(theme, activeCourses) : renderLineCourseCards(theme)}
+          ${isCharacterMode() ? renderKanjiCourseCards(theme, activeCourses) : renderLineCourseCards(theme)}
         </section>
       </main>
     `;
@@ -344,7 +388,7 @@
           ${kanjiCoursePreview(theme, course, "course-mini")}
           <em>${escapeHtml(course.level)}</em>
           <strong class="kanji-card-title">${escapeHtml(course.label)}</strong>
-          <span>${course.reading ? `${escapeHtml(course.reading)}・` : ""}${escapeHtml(course.skill)}</span>
+          <span>${course.reading && course.reading !== course.label ? `${escapeHtml(course.reading)}・` : ""}${escapeHtml(course.skill)}</span>
           <small class="course-best">${best ? `最高 ${best}点` : "未挑戦"}</small>
         </button>
       `;
@@ -371,7 +415,7 @@
   }
 
   function renderPlay(theme, course) {
-    if (isKanjiMode()) return renderKanjiPlay(theme, course);
+    if (isCharacterMode()) return renderKanjiPlay(theme, course);
     const difficulty = currentDifficulty();
     return `
       <main class="play-screen">
@@ -435,8 +479,8 @@
         <header class="play-header">
           <button class="ghost" type="button" data-action="course">コース</button>
           <div>
-            <p>${escapeHtml(difficulty.label)} / ${escapeHtml(theme.label)} / かんじへのみち</p>
-            <h1><span class="kanji-play-title">${escapeHtml(course.label)}</span> ${escapeHtml(course.reading)}</h1>
+            <p>${escapeHtml(difficulty.label)} / ${escapeHtml(theme.label)} / ${escapeHtml(courseModeLabel())}</p>
+            <h1><span class="kanji-play-title">${escapeHtml(course.label)}</span>${course.reading && course.reading !== course.label ? ` ${escapeHtml(course.reading)}` : ""}</h1>
           </div>
           <button class="ghost" type="button" data-action="restart">やりなおす</button>
         </header>
@@ -549,7 +593,7 @@
   }
 
   function previewAdventure(theme, course) {
-    if (isKanjiMode()) return previewKanjiAdventure(theme, course);
+    if (isCharacterMode()) return previewKanjiAdventure(theme, course);
     return `
       <svg class="preview-svg" viewBox="0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}" preserveAspectRatio="none">
         <rect width="${VIEW_WIDTH}" height="${VIEW_HEIGHT}" fill="${attr(theme.land)}"></rect>
@@ -684,7 +728,7 @@
     const progressBar = root.querySelector("#progressBar");
     const hint = root.querySelector("#playHint");
     const displayCourse = currentCourse();
-    const kanji = isKanjiMode();
+    const kanji = isCharacterMode();
     const strokeIndex = kanji ? state.kanjiRun.strokeIndex : 0;
     const course = kanji ? displayCourse.strokes[strokeIndex] : displayCourse;
     const totalLength = guide.getTotalLength();
@@ -1233,7 +1277,9 @@
       state.screen = "course";
     } else if (action === "select-course-mode") {
       const mode = button.dataset.mode;
-      if (mode === "line" || (mode === "kanji" && kanjiCourses.length)) {
+      const kanaModeAvailable = (mode === "hiragana" || mode === "katakana")
+        && (kanaCoursesByType.get(mode) || []).length;
+      if (mode === "line" || (mode === "kanji" && kanjiCourses.length) || kanaModeAvailable) {
         state.courseMode = mode;
         if (mode === "line" && !courseMap.has(state.courseId)) state.courseId = courses[0].id;
         if (mode === "kanji") {
@@ -1242,6 +1288,11 @@
           if (!selected || (selected.gradeId || "grade_1") !== state.kanjiGradeId) {
             state.courseId = (gradeCourses[0] || kanjiCourses[0]).id;
           }
+        }
+        if (mode === "hiragana" || mode === "katakana") {
+          const typeCourses = kanaCoursesByType.get(mode) || [];
+          const selected = kanaCourseMap.get(state.courseId);
+          if (!selected || selected.typeId !== mode) state.courseId = typeCourses[0].id;
         }
         resetKanjiRun();
         saveState();
@@ -1260,9 +1311,9 @@
       }
     } else if (action === "select-course") {
       state.courseId = button.dataset.course;
-      const selected = kanjiCourseMap.get(state.courseId);
-      if (state.courseMode === "kanji" && selected) {
-        state.kanjiGradeId = selected.gradeId || "grade_1";
+      const selectedKanji = kanjiCourseMap.get(state.courseId);
+      if (state.courseMode === "kanji" && selectedKanji) {
+        state.kanjiGradeId = selectedKanji.gradeId || "grade_1";
       }
       resetKanjiRun();
       saveState();

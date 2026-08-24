@@ -782,6 +782,18 @@ button:focus-visible {
     font-size: 26px;
   }
 
+  .top-bar {
+    grid-template-columns: 70px minmax(0, 1fr) 70px;
+  }
+
+  .top-bar h1 {
+    font-size: 22px;
+  }
+
+  .top-bar .ghost {
+    padding: 9px 5px;
+  }
+
   .kanji-play-screen .play-header {
     grid-template-columns: 70px minmax(0, 1fr) 70px;
   }
@@ -813,8 +825,20 @@ button:focus-visible {
   }
 
   .course-mode-switch {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
+  }
+
+  .course-mode-switch button {
+    padding: 11px 9px;
+  }
+
+  .course-mode-switch strong {
+    font-size: 17px;
+  }
+
+  .course-mode-switch span {
+    font-size: 12px;
   }
 
   .kanji-grade-switch button {
